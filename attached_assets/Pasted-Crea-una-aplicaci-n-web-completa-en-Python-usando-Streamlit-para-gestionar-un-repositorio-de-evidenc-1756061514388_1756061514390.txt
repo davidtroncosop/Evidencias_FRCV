@@ -1,0 +1,29 @@
+Crea una aplicación web completa en Python usando Streamlit para gestionar un repositorio de evidencias de acreditación universitaria.
+
+La aplicación debe cumplir con los siguientes requisitos:
+
+1.  **Autenticación de Usuarios:**
+    *   La base de datos de usuarios estará en una Hoja de Cálculo de Google llamada "BaseDeDatosAppReha", en una pestaña llamada "usuarios".
+    *   La pestaña "usuarios" tendrá las columnas: `correo`, `programa`, `rol`.
+    *   El rol puede ser "usuario" o "admin".
+    *   La aplicación debe tener una pantalla de login donde el usuario ingresa su correo. El sistema debe validar el correo contra la hoja de Google Sheets.
+    *   Utiliza `st.session_state` para mantener al usuario logueado.
+
+2.  **Almacenamiento de Archivos:**
+    *   Los archivos (PDF, imágenes, etc.) deben subirse a Cloudinary.
+
+3.  **Lógica de Roles (Row-Level Security):**
+    *   **Si el rol es "usuario"**: El usuario solo podrá ver y subir archivos asociados a su propio `programa`.
+    *   **Si el rol es "admin"**: El usuario verá un panel de control con una tabla resumen de **todas** las evidencias de **todos** los programas. Esta tabla debe poder ser filtrada por programa.
+
+4.  **Registro de Evidencias:**
+    *   Cuando un usuario sube un archivo, se debe guardar un registro en la misma Hoja de Cálculo "BaseDeDatosAppReha", pero en una pestaña llamada "evidencias".
+    *   La pestaña "evidencias" tendrá las columnas: `programa`, `subido_por` (el correo del usuario), `url_cloudinary`, `fecha_hora`.
+
+5.  **Entorno de Replit:**
+    *   El código debe estar en un solo archivo `main.py`.
+    *   Debe obtener las credenciales de API para Google Sheets (JSON) y Cloudinary (cloud_name, api_key, api_secret) desde los "Secrets" de Replit, no deben estar escritas en el código.
+    *   Genera el contenido del archivo `requirements.txt` con todas las librerías necesarias.
+    *   Genera el contenido del archivo `.replit` con el comando correcto para ejecutar una aplicación de Streamlit.
+
+El código debe ser claro, estar bien comentado y manejar posibles errores (ej: hoja de cálculo no encontrada, fallo en la subida).
