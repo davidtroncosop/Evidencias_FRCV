@@ -170,8 +170,8 @@ def add_evidencia(client, programa, subido_por, url_cloudinary, criterio, dimens
 def upload_to_google_drive(file, folder_name, drive_service):
     """Sube un archivo a Google Drive y retorna la URL pública"""
     try:
-        # Crear o encontrar la carpeta
-        folder_id = create_or_get_folder(drive_service, f"evidencias_{folder_name}")
+        # Usar el folder ID específico proporcionado
+        folder_id = "1GWFa2LeZ4BLwDLcTpXe3zEpD9aEuI_pZ"
         
         # Preparar los metadatos del archivo
         file_metadata = {
