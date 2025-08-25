@@ -75,7 +75,7 @@ def init_google_sheets():
         return None
 
 # Configuración del webhook de n8n
-N8N_WEBHOOK_URL = "https://api.replit.com/v1/users/n8n/workspaces/default/workflows/8oc1uZHAau5I7dIh/webhooks/14a204a1-0d04-46e7-aa8f-7b44fd886fcd"
+N8N_WEBHOOK_URL = "https://n8n.dtroncoso.site/webhook-test/14a204a1-0d04-46e7-aa8f-7b44fd886fcd"
 
 def init_n8n_service():
     """Inicializa el servicio de n8n (siempre disponible)"""
