@@ -1,8 +1,7 @@
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+import requests
 import pandas as pd
 from datetime import datetime
 import json
@@ -75,36 +74,12 @@ def init_google_sheets():
         st.error(f"Error al inicializar Google Sheets: {str(e)}")
         return None
 
-# Función para inicializar Google Drive
-@st.cache_resource
-def init_google_drive():
-    """Inicializa la conexión con Google Drive usando las credenciales de los secrets"""
-    try:
-        # Obtener credenciales desde los secrets de Replit
-        google_credentials = os.getenv("GOOGLE_DRIVE_CREDENTIALS") or os.getenv("GOOGLE_SHEETS_CREDENTIALS")
-        if not google_credentials:
-            st.error("No se encontraron las credenciales de Google Drive en los secrets")
-            return None
-            
-        # Parsear las credenciales JSON
-        creds_dict = json.loads(google_credentials)
-        
-        # Configurar los scopes necesarios
-        scopes = [
-            "https://www.googleapis.com/auth/drive.file",
-            "https://www.googleapis.com/auth/drive"
-        ]
-        
-        # Crear las credenciales
-        credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        
-        # Inicializar el cliente de Google Drive
-        drive_service = build('drive', 'v3', credentials=credentials)
-        
-        return drive_service
-    except Exception as e:
-        st.error(f"Error al inicializar Google Drive: {str(e)}")
-        return None
+# Configuración del webhook de n8n
+N8N_WEBHOOK_URL = "https://api.replit.com/v1/users/n8n/workspaces/default/workflows/8oc1uZHAau5I7dIh/webhooks/14a204a1-0d04-46e7-aa8f-7b44fd886fcd"
+
+def init_n8n_service():
+    """Inicializa el servicio de n8n (siempre disponible)"""
+    return True
 
 # Función para obtener usuarios desde Google Sheets
 @st.cache_data(ttl=300)  # Cache por 5 minutos
@@ -166,66 +141,39 @@ def add_evidencia(client, programa, subido_por, url_cloudinary, criterio, dimens
         st.error(f"Error al agregar evidencia: {str(e)}")
         return False
 
-# Función para subir archivo a Google Drive
-def upload_to_google_drive(file, folder_name, drive_service):
-    """Sube un archivo a Google Drive y retorna la URL pública"""
+# Función para subir archivo via n8n webhook
+def upload_to_n8n(file, folder_name, n8n_service=None):
+    """Sube un archivo a Google Drive via n8n webhook y retorna la URL pública"""
     try:
-        # Usar el folder ID específico proporcionado
-        folder_id = "1GWFa2LeZ4BLwDLcTpXe3zEpD9aEuI_pZ"
-        
-        # Preparar los metadatos del archivo
-        file_metadata = {
-            'name': file.name,
-            'parents': [folder_id]
+        # Preparar los datos del archivo para enviar al webhook
+        files = {
+            'file': (file.name, file.read(), file.type)
         }
         
-        # Crear el media upload
-        media = MediaIoBaseUpload(io.BytesIO(file.read()), mimetype=file.type)
+        # Datos adicionales para el webhook
+        data = {
+            'filename': file.name,
+            'folder_name': folder_name
+        }
         
-        # Subir el archivo
-        uploaded_file = drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id,webViewLink'
-        ).execute()
+        # Enviar archivo al webhook de n8n
+        response = requests.post(
+            N8N_WEBHOOK_URL,
+            files=files,
+            data=data,
+            timeout=30
+        )
         
-        # Hacer el archivo público para lectura
-        drive_service.permissions().create(
-            fileId=uploaded_file['id'],
-            body={'role': 'reader', 'type': 'anyone'}
-        ).execute()
-        
-        return uploaded_file.get('webViewLink')
-    except Exception as e:
-        st.error(f"Error al subir archivo a Google Drive: {str(e)}")
-        return None
-
-def create_or_get_folder(drive_service, folder_name):
-    """Crea una carpeta en Google Drive o retorna su ID si ya existe"""
-    try:
-        # Buscar si la carpeta ya existe
-        results = drive_service.files().list(
-            q=f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder'",
-            fields="files(id, name)"
-        ).execute()
-        
-        items = results.get('files', [])
-        
-        if items:
-            return items[0]['id']
+        if response.status_code == 200:
+            result = response.json()
+            # El webhook de n8n debería retornar la URL del archivo
+            return result.get('webViewLink') or result.get('url') or f"https://drive.google.com/file/d/{result.get('id')}/view"
         else:
-            # Crear nueva carpeta
-            folder_metadata = {
-                'name': folder_name,
-                'mimeType': 'application/vnd.google-apps.folder'
-            }
-            folder = drive_service.files().create(
-                body=folder_metadata,
-                fields='id'
-            ).execute()
-            return folder.get('id')
+            st.error(f"Error en webhook de n8n: {response.status_code} - {response.text}")
+            return None
+            
     except Exception as e:
-        st.error(f"Error al crear/obtener carpeta: {str(e)}")
+        st.error(f"Error al subir archivo via n8n: {str(e)}")
         return None
 
 # Función de autenticación
@@ -303,9 +251,9 @@ def show_user_panel():
     
     # Inicializar servicios
     client = init_google_sheets()
-    drive_service = init_google_drive()
+    n8n_service = init_n8n_service()
     
-    if not client or not drive_service:
+    if not client or not n8n_service:
         st.error("Error al inicializar los servicios necesarios")
         return
     
@@ -355,8 +303,8 @@ def show_user_panel():
                     progress_bar.progress((i + 1) / total_files)
                     
                     with st.spinner(f"Subiendo {uploaded_file.name}..."):
-                        # Subir a Google Drive
-                        url_drive = upload_to_google_drive(uploaded_file, user_data['programa'], drive_service)
+                        # Subir via n8n webhook
+                        url_drive = upload_to_n8n(uploaded_file, user_data['programa'], n8n_service)
                         
                         if url_drive:
                             # Registrar en Google Sheets
