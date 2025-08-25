@@ -1,8 +1,8 @@
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-import cloudinary
-import cloudinary.uploader
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 import pandas as pd
 from datetime import datetime
 import json
@@ -47,27 +47,36 @@ def init_google_sheets():
         st.error(f"Error al inicializar Google Sheets: {str(e)}")
         return None
 
-# Función para inicializar Cloudinary
-def init_cloudinary():
-    """Inicializa Cloudinary usando las credenciales de los secrets"""
+# Función para inicializar Google Drive
+@st.cache_resource
+def init_google_drive():
+    """Inicializa la conexión con Google Drive usando las credenciales de los secrets"""
     try:
-        cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME")
-        api_key = os.getenv("CLOUDINARY_API_KEY")
-        api_secret = os.getenv("CLOUDINARY_API_SECRET")
-        
-        if not all([cloud_name, api_key, api_secret]):
-            st.error("No se encontraron todas las credenciales de Cloudinary en los secrets")
-            return False
+        # Obtener credenciales desde los secrets de Replit
+        google_credentials = os.getenv("GOOGLE_DRIVE_CREDENTIALS") or os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+        if not google_credentials:
+            st.error("No se encontraron las credenciales de Google Drive en los secrets")
+            return None
             
-        cloudinary.config(
-            cloud_name=cloud_name,
-            api_key=api_key,
-            api_secret=api_secret
-        )
-        return True
+        # Parsear las credenciales JSON
+        creds_dict = json.loads(google_credentials)
+        
+        # Configurar los scopes necesarios
+        scopes = [
+            "https://www.googleapis.com/auth/drive.file",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
+        # Crear las credenciales
+        credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        
+        # Inicializar el cliente de Google Drive
+        drive_service = build('drive', 'v3', credentials=credentials)
+        
+        return drive_service
     except Exception as e:
-        st.error(f"Error al inicializar Cloudinary: {str(e)}")
-        return False
+        st.error(f"Error al inicializar Google Drive: {str(e)}")
+        return None
 
 # Función para obtener usuarios desde Google Sheets
 @st.cache_data(ttl=300)  # Cache por 5 minutos
@@ -129,20 +138,66 @@ def add_evidencia(client, programa, subido_por, url_cloudinary):
         st.error(f"Error al agregar evidencia: {str(e)}")
         return False
 
-# Función para subir archivo a Cloudinary
-def upload_to_cloudinary(file, folder_name):
-    """Sube un archivo a Cloudinary y retorna la URL"""
+# Función para subir archivo a Google Drive
+def upload_to_google_drive(file, folder_name, drive_service):
+    """Sube un archivo a Google Drive y retorna la URL pública"""
     try:
-        # Subir archivo
-        result = cloudinary.uploader.upload(
-            file,
-            folder=f"evidencias/{folder_name}",
-            resource_type="auto"
-        )
+        # Crear o encontrar la carpeta
+        folder_id = create_or_get_folder(drive_service, f"evidencias_{folder_name}")
         
-        return result.get("secure_url")
+        # Preparar los metadatos del archivo
+        file_metadata = {
+            'name': file.name,
+            'parents': [folder_id]
+        }
+        
+        # Crear el media upload
+        media = MediaIoBaseUpload(io.BytesIO(file.read()), mimetype=file.type)
+        
+        # Subir el archivo
+        uploaded_file = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id,webViewLink'
+        ).execute()
+        
+        # Hacer el archivo público para lectura
+        drive_service.permissions().create(
+            fileId=uploaded_file['id'],
+            body={'role': 'reader', 'type': 'anyone'}
+        ).execute()
+        
+        return uploaded_file.get('webViewLink')
     except Exception as e:
-        st.error(f"Error al subir archivo a Cloudinary: {str(e)}")
+        st.error(f"Error al subir archivo a Google Drive: {str(e)}")
+        return None
+
+def create_or_get_folder(drive_service, folder_name):
+    """Crea una carpeta en Google Drive o retorna su ID si ya existe"""
+    try:
+        # Buscar si la carpeta ya existe
+        results = drive_service.files().list(
+            q=f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder'",
+            fields="files(id, name)"
+        ).execute()
+        
+        items = results.get('files', [])
+        
+        if items:
+            return items[0]['id']
+        else:
+            # Crear nueva carpeta
+            folder_metadata = {
+                'name': folder_name,
+                'mimeType': 'application/vnd.google-apps.folder'
+            }
+            folder = drive_service.files().create(
+                body=folder_metadata,
+                fields='id'
+            ).execute()
+            return folder.get('id')
+    except Exception as e:
+        st.error(f"Error al crear/obtener carpeta: {str(e)}")
         return None
 
 # Función de autenticación
@@ -220,9 +275,9 @@ def show_user_panel():
     
     # Inicializar servicios
     client = init_google_sheets()
-    cloudinary_ok = init_cloudinary()
+    drive_service = init_google_drive()
     
-    if not client or not cloudinary_ok:
+    if not client or not drive_service:
         st.error("Error al inicializar los servicios necesarios")
         return
     
@@ -244,16 +299,16 @@ def show_user_panel():
             
             if st.button("Subir Evidencia"):
                 with st.spinner("Subiendo archivo..."):
-                    # Subir a Cloudinary
-                    url_cloudinary = upload_to_cloudinary(uploaded_file, user_data['programa'])
+                    # Subir a Google Drive
+                    url_drive = upload_to_google_drive(uploaded_file, user_data['programa'], drive_service)
                     
-                    if url_cloudinary:
+                    if url_drive:
                         # Registrar en Google Sheets
                         success = add_evidencia(
                             client, 
                             user_data['programa'], 
                             user_data['correo'], 
-                            url_cloudinary
+                            url_drive
                         )
                         
                         if success:
@@ -370,7 +425,7 @@ def show_admin_panel():
     
     with col2:
         # Filtro por fecha
-        fecha_desde = st.date_input("Desde", value=today.date() - pd.Timedelta(days=30))
+        fecha_desde = st.date_input("Desde", value=(today - pd.Timedelta(days=30)).date())
         fecha_hasta = st.date_input("Hasta", value=today.date())
     
     # Aplicar filtros
@@ -380,16 +435,16 @@ def show_admin_panel():
         df_filtrado = df_filtrado[df_filtrado['programa'] == programa_seleccionado]
     
     # Filtrar por fecha
-    if not df_filtrado.empty:
+    if not df_filtrado.empty and 'fecha_hora' in df_filtrado.columns:
         df_filtrado = df_filtrado[
-            (df_filtrado['fecha_hora'].dt.date >= fecha_desde) & 
-            (df_filtrado['fecha_hora'].dt.date <= fecha_hasta)
+            (pd.to_datetime(df_filtrado['fecha_hora']).dt.date >= fecha_desde) & 
+            (pd.to_datetime(df_filtrado['fecha_hora']).dt.date <= fecha_hasta)
         ]
     
     # Mostrar resultados
     st.header("📋 Evidencias Filtradas")
     
-    if not df_filtrado.empty:
+    if len(df_filtrado) > 0:
         st.write(f"Mostrando {len(df_filtrado)} evidencias")
         
         # Tabla con todas las evidencias
@@ -410,7 +465,7 @@ def show_admin_panel():
         # Gráfico por programa
         if len(df_filtrado) > 0:
             st.subheader("📈 Distribución por Programa")
-            programa_counts = df_filtrado['programa'].value_counts()
+            programa_counts = pd.Series(df_filtrado['programa']).value_counts()
             st.bar_chart(programa_counts)
     else:
         st.info("No se encontraron evidencias con los filtros aplicados.")
