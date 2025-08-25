@@ -142,7 +142,7 @@ def add_evidencia(client, programa, subido_por, url_cloudinary, criterio, dimens
         return False
 
 # Función para subir archivo via n8n webhook
-def upload_to_n8n(file, folder_name, n8n_service=None):
+def upload_to_n8n(file, folder_name, n8n_service=None, dimension=None, criterio=None):
     """Sube un archivo a Google Drive via n8n webhook y retorna la URL pública"""
     try:
         # Preparar los datos del archivo para enviar al webhook
@@ -153,7 +153,9 @@ def upload_to_n8n(file, folder_name, n8n_service=None):
         # Datos adicionales para el webhook
         data = {
             'filename': file.name,
-            'folder_name': folder_name
+            'folder_name': folder_name,
+            'dimension': dimension or '',
+            'criterio': criterio or ''
         }
         
         # Enviar archivo al webhook de n8n
@@ -304,7 +306,13 @@ def show_user_panel():
                     
                     with st.spinner(f"Subiendo {uploaded_file.name}..."):
                         # Subir via n8n webhook
-                        url_drive = upload_to_n8n(uploaded_file, user_data['programa'], n8n_service)
+                        url_drive = upload_to_n8n(
+                            uploaded_file, 
+                            user_data['programa'], 
+                            n8n_service,
+                            dimension_seleccionada,
+                            criterio_seleccionado
+                        )
                         
                         if url_drive:
                             # Registrar en Google Sheets
