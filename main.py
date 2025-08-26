@@ -1,7 +1,7 @@
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-import requests
+from google.cloud import storage
 import pandas as pd
 from datetime import datetime
 import json
@@ -74,12 +74,33 @@ def init_google_sheets():
         st.error(f"Error al inicializar Google Sheets: {str(e)}")
         return None
 
-# Configuración del webhook de n8n
-N8N_WEBHOOK_URL = "https://n8n.dtroncoso.site/webhook-test/14a204a1-0d04-46e7-aa8f-7b44fd886fcd"
-
-def init_n8n_service():
-    """Inicializa el servicio de n8n (siempre disponible)"""
-    return True
+# Función para inicializar Google Cloud Storage
+@st.cache_resource
+def init_google_cloud_storage():
+    """Inicializa la conexión con Google Cloud Storage usando las credenciales de los secrets"""
+    try:
+        # Obtener credenciales desde los secrets de Replit
+        google_credentials = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        if not google_credentials:
+            st.error("No se encontraron las credenciales de Google Cloud Storage en los secrets")
+            return None
+            
+        # Crear archivo temporal con las credenciales
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            f.write(google_credentials)
+            temp_creds_path = f.name
+        
+        # Configurar la variable de entorno
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_creds_path
+        
+        # Inicializar el cliente de Google Cloud Storage
+        client = storage.Client()
+        
+        return client
+    except Exception as e:
+        st.error(f"Error al inicializar Google Cloud Storage: {str(e)}")
+        return None
 
 # Función para obtener usuarios desde Google Sheets
 @st.cache_data(ttl=300)  # Cache por 5 minutos
@@ -141,41 +162,40 @@ def add_evidencia(client, programa, subido_por, url_cloudinary, criterio, dimens
         st.error(f"Error al agregar evidencia: {str(e)}")
         return False
 
-# Función para subir archivo via n8n webhook
-def upload_to_n8n(file, folder_name, n8n_service=None, dimension=None, criterio=None):
-    """Sube un archivo a Google Drive via n8n webhook y retorna la URL pública"""
+# Función para subir archivo a Google Cloud Storage
+def upload_to_gcs(file, folder_name, gcs_client, dimension=None, criterio=None, bucket_name="evidencias-acreditacion"):
+    """Sube un archivo a Google Cloud Storage y retorna la URL pública"""
     try:
-        # Preparar los datos del archivo para enviar al webhook
-        files = {
-            'file': (file.name, file.read(), file.type)
-        }
+        # Crear la ruta del archivo con estructura de carpetas
+        # Limpiar nombres para que sean compatibles con GCS
+        clean_dimension = dimension.replace("/", "-").replace("\\", "-") if dimension else ""
+        clean_criterio = criterio.replace("/", "-").replace("\\", "-") if criterio else ""
+        clean_folder = folder_name.replace("/", "-").replace("\\", "-")
         
-        # Datos adicionales para el webhook
-        data = {
-            'filename': file.name,
-            'folder_name': folder_name,
-            'dimension': dimension or '',
-            'criterio': criterio or ''
-        }
-        
-        # Enviar archivo al webhook de n8n
-        response = requests.post(
-            N8N_WEBHOOK_URL,
-            files=files,
-            data=data,
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            # El webhook de n8n debería retornar la URL del archivo
-            return result.get('webViewLink') or result.get('url') or f"https://drive.google.com/file/d/{result.get('id')}/view"
+        # Crear la ruta: programa/dimension/criterio/archivo
+        if dimension and criterio:
+            file_path = f"{clean_folder}/{clean_dimension}/{clean_criterio}/{file.name}"
         else:
-            st.error(f"Error en webhook de n8n: {response.status_code} - {response.text}")
-            return None
-            
+            file_path = f"{clean_folder}/{file.name}"
+        
+        # Obtener el bucket
+        bucket = gcs_client.bucket(bucket_name)
+        
+        # Crear el blob (archivo en GCS)
+        blob = bucket.blob(file_path)
+        
+        # Subir el archivo
+        file.seek(0)  # Resetear el puntero del archivo
+        blob.upload_from_file(file, content_type=file.type)
+        
+        # Hacer el archivo público
+        blob.make_public()
+        
+        # Retornar la URL pública
+        return blob.public_url
+        
     except Exception as e:
-        st.error(f"Error al subir archivo via n8n: {str(e)}")
+        st.error(f"Error al subir archivo a Google Cloud Storage: {str(e)}")
         return None
 
 # Función de autenticación
@@ -253,9 +273,9 @@ def show_user_panel():
     
     # Inicializar servicios
     client = init_google_sheets()
-    n8n_service = init_n8n_service()
+    gcs_client = init_google_cloud_storage()
     
-    if not client or not n8n_service:
+    if not client or not gcs_client:
         st.error("Error al inicializar los servicios necesarios")
         return
     
@@ -305,11 +325,11 @@ def show_user_panel():
                     progress_bar.progress((i + 1) / total_files)
                     
                     with st.spinner(f"Subiendo {uploaded_file.name}..."):
-                        # Subir via n8n webhook
-                        url_drive = upload_to_n8n(
+                        # Subir a Google Cloud Storage
+                        url_drive = upload_to_gcs(
                             uploaded_file, 
                             user_data['programa'], 
-                            n8n_service,
+                            gcs_client,
                             dimension_seleccionada,
                             criterio_seleccionado
                         )
