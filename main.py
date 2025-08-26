@@ -145,7 +145,7 @@ def add_evidencia(client, programa, subido_por, url_cloudinary, criterio, dimens
     """Agrega una nueva evidencia a la hoja de Google Sheets"""
     try:
         # Abrir la hoja de cálculo
-        sheet = client.open("BaseDeDatosAppReha")
+        sheet = client.open("sistema_evidencias")
         
         # Obtener la pestaña de evidencias
         evidencias_worksheet = sheet.worksheet("evidencias")
