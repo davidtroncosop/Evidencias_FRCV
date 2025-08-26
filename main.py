@@ -188,11 +188,19 @@ def upload_to_gcs(file, folder_name, gcs_client, dimension=None, criterio=None, 
         file.seek(0)  # Resetear el puntero del archivo
         blob.upload_from_file(file, content_type=file.type)
         
-        # Hacer el archivo público
-        blob.make_public()
-        
-        # Retornar la URL pública
-        return blob.public_url
+        # Intentar hacer el archivo público, si no se puede, usar URL autenticada
+        try:
+            blob.make_public()
+            return blob.public_url
+        except Exception as e:
+            # Si no se puede hacer público, generar URL firmada válida por 365 días
+            from datetime import timedelta
+            url = blob.generate_signed_url(
+                version="v4",
+                expiration=timedelta(days=365),
+                method="GET"
+            )
+            return url
         
     except Exception as e:
         st.error(f"Error al subir archivo a Google Cloud Storage: {str(e)}")
