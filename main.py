@@ -193,11 +193,11 @@ def upload_to_gcs(file, folder_name, gcs_client, dimension=None, criterio=None, 
             blob.make_public()
             return blob.public_url
         except Exception as e:
-            # Si no se puede hacer público, generar URL firmada válida por 365 días
+            # Si no se puede hacer público, generar URL firmada válida por 7 días
             from datetime import timedelta
             url = blob.generate_signed_url(
                 version="v4",
-                expiration=timedelta(days=365),
+                expiration=timedelta(days=7),
                 method="GET"
             )
             return url
