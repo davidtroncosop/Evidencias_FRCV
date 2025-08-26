@@ -163,7 +163,7 @@ def add_evidencia(client, programa, subido_por, url_cloudinary, criterio, dimens
         return False
 
 # Función para subir archivo a Google Cloud Storage
-def upload_to_gcs(file, folder_name, gcs_client, dimension=None, criterio=None, bucket_name="evidencias-acreditacion"):
+def upload_to_gcs(file, folder_name, gcs_client, dimension=None, criterio=None, bucket_name="storage"):
     """Sube un archivo a Google Cloud Storage y retorna la URL pública"""
     try:
         # Crear la ruta del archivo con estructura de carpetas
