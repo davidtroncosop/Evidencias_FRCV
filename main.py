@@ -163,7 +163,7 @@ def add_evidencia(client, programa, subido_por, url_cloudinary, criterio, dimens
         return False
 
 # Función para subir archivo a Google Cloud Storage
-def upload_to_gcs(file, folder_name, gcs_client, dimension=None, criterio=None, bucket_name="storage"):
+def upload_to_gcs(file, folder_name, gcs_client, dimension=None, criterio=None, bucket_name="mi-bucket-proyecto"):
     """Sube un archivo a Google Cloud Storage y retorna la URL pública"""
     try:
         # Crear la ruta del archivo con estructura de carpetas
@@ -199,19 +199,22 @@ def upload_to_gcs(file, folder_name, gcs_client, dimension=None, criterio=None, 
         return None
 
 # Función de autenticación
-def authenticate_user(email, users_df):
-    """Autentica al usuario y retorna sus datos"""
+def authenticate_user(email, password, users_df):
+    """Autentica al usuario con email y contraseña y retorna sus datos"""
     if users_df.empty:
         return None
         
     user_data = users_df[users_df['correo'].str.lower() == email.lower()]
     
     if not user_data.empty:
-        return {
-            'correo': user_data.iloc[0]['correo'],
-            'programa': user_data.iloc[0]['programa'],
-            'rol': user_data.iloc[0]['rol']
-        }
+        # Verificar contraseña (si no existe columna contraseña, permitir acceso)
+        stored_password = user_data.iloc[0].get('contraseña', password)
+        if stored_password == password:
+            return {
+                'correo': user_data.iloc[0]['correo'],
+                'programa': user_data.iloc[0]['programa'],
+                'rol': user_data.iloc[0]['rol']
+            }
     return None
 
 # Función para mostrar el login
@@ -222,11 +225,12 @@ def show_login():
     
     with st.form("login_form"):
         email = st.text_input("Correo electrónico", placeholder="usuario@universidad.edu")
+        password = st.text_input("Contraseña", type="password", placeholder="Ingresa tu contraseña")
         submit_button = st.form_submit_button("Iniciar Sesión")
         
         if submit_button:
-            if not email:
-                st.error("Por favor ingrese su correo electrónico")
+            if not email or not password:
+                st.error("Por favor ingrese su correo electrónico y contraseña")
                 return
                 
             # Inicializar Google Sheets
@@ -241,7 +245,7 @@ def show_login():
                 return
                 
             # Autenticar usuario
-            user_data = authenticate_user(email, users_df)
+            user_data = authenticate_user(email, password, users_df)
             
             if user_data:
                 st.session_state.user_data = user_data
@@ -249,7 +253,83 @@ def show_login():
                 st.success(f"¡Bienvenido! Ingresando como {user_data['rol']}")
                 st.rerun()
             else:
-                st.error("Correo no encontrado en la base de datos")
+                st.error("Correo o contraseña incorrectos")
+
+# Función para cambiar contraseña
+def change_password_page():
+    """Página para cambiar contraseña"""
+    st.title("🔐 Cambiar Contraseña")
+    
+    with st.form("change_password_form"):
+        current_password = st.text_input("Contraseña actual", type="password")
+        new_password = st.text_input("Nueva contraseña", type="password")
+        confirm_password = st.text_input("Confirmar nueva contraseña", type="password")
+        submit_button = st.form_submit_button("Cambiar Contraseña")
+        
+        if submit_button:
+            if not all([current_password, new_password, confirm_password]):
+                st.error("Por favor complete todos los campos")
+                return
+                
+            if new_password != confirm_password:
+                st.error("Las contraseñas nuevas no coinciden")
+                return
+                
+            if len(new_password) < 6:
+                st.error("La nueva contraseña debe tener al menos 6 caracteres")
+                return
+            
+            # Inicializar Google Sheets
+            client = init_google_sheets()
+            if not client:
+                st.error("Error al conectar con la base de datos")
+                return
+                
+            # Obtener datos de usuarios
+            users_df = get_users_data(client)
+            if users_df.empty:
+                st.error("No se pudieron cargar los datos de usuarios")
+                return
+            
+            # Verificar contraseña actual
+            user_email = st.session_state.user_data['correo']
+            user_data = authenticate_user(user_email, current_password, users_df)
+            
+            if not user_data:
+                st.error("Contraseña actual incorrecta")
+                return
+            
+            # Actualizar contraseña en Google Sheets
+            try:
+                worksheet = client.open("sistema_evidencias").worksheet("usuarios")
+                all_records = worksheet.get_all_records()
+                
+                # Encontrar la fila del usuario
+                for i, record in enumerate(all_records):
+                    if record['correo'].lower() == user_email.lower():
+                        row_num = i + 2  # +2 porque las filas empiezan en 1 y hay encabezado
+                        
+                        # Verificar si existe la columna contraseña
+                        headers = worksheet.row_values(1)
+                        if 'contraseña' not in headers:
+                            # Agregar columna contraseña si no existe
+                            worksheet.update_cell(1, len(headers) + 1, 'contraseña')
+                            col_num = len(headers) + 1
+                        else:
+                            col_num = headers.index('contraseña') + 1
+                        
+                        # Actualizar contraseña
+                        worksheet.update_cell(row_num, col_num, new_password)
+                        st.success("✅ Contraseña actualizada exitosamente")
+                        
+                        # Limpiar cache para recargar datos
+                        get_users_data.clear()
+                        return
+                        
+                st.error("Usuario no encontrado")
+                
+            except Exception as e:
+                st.error(f"Error al actualizar contraseña: {str(e)}")
 
 # Función para mostrar panel de usuario
 def show_user_panel():
@@ -266,10 +346,23 @@ def show_user_panel():
         st.write(f"**Programa:** {user_data['programa']}")
         st.write(f"**Rol:** {user_data['rol']}")
         
+        if st.button("🔐 Cambiar Contraseña"):
+            st.session_state.show_change_password = True
+            st.rerun()
+            
         if st.button("Cerrar Sesión"):
             for key in st.session_state.keys():
                 del st.session_state[key]
             st.rerun()
+    
+    # Verificar si se debe mostrar la página de cambio de contraseña
+    if st.session_state.get('show_change_password', False):
+        change_password_page()
+        
+        if st.button("⬅️ Volver al Panel"):
+            st.session_state.show_change_password = False
+            st.rerun()
+        return
     
     # Inicializar servicios
     client = init_google_sheets()
@@ -459,10 +552,23 @@ def show_admin_panel():
         st.write(f"**Programa:** {user_data['programa']}")
         st.write(f"**Rol:** {user_data['rol']}")
         
+        if st.button("🔐 Cambiar Contraseña", key="admin_change_password"):
+            st.session_state.show_change_password = True
+            st.rerun()
+            
         if st.button("Cerrar Sesión"):
             for key in st.session_state.keys():
                 del st.session_state[key]
             st.rerun()
+    
+    # Verificar si se debe mostrar la página de cambio de contraseña
+    if st.session_state.get('show_change_password', False):
+        change_password_page()
+        
+        if st.button("⬅️ Volver al Panel", key="admin_back_to_panel"):
+            st.session_state.show_change_password = False
+            st.rerun()
+        return
     
     # Inicializar servicios
     client = init_google_sheets()
