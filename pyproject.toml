@@ -14,4 +14,7 @@ dependencies = [
     "google-api-python-client>=2.179.0",
     "google-cloud-storage>=3.3.0",
     "requests>=2.32.5",
+    "pygithub>=2.7.0",
+    "gitpython>=3.1.45",
+    "sift-stack-py>=0.8.4",
 ]
