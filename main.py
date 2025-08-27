@@ -2,8 +2,6 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 from google.cloud import storage
-from github import Github
-import base64
 import pandas as pd
 from datetime import datetime
 import json
@@ -396,49 +394,6 @@ def delete_evidencia(client, row_index):
         st.error(f"Error al eliminar evidencia de la base de datos: {str(e)}")
         return False
 
-# Función para subir archivo a GitHub
-def upload_to_github(file_content, file_name, folder_path, github_token, repo_name):
-    """Sube un archivo a un repositorio de GitHub"""
-    try:
-        if not github_token:
-            st.error("Token de GitHub no configurado")
-            return None
-            
-        # Inicializar GitHub
-        g = Github(github_token)
-        
-        # Obtener el repositorio
-        repo = g.get_repo(repo_name)
-        
-        # Crear la ruta completa del archivo
-        file_path = f"{folder_path}/{file_name}"
-        
-        # Codificar el contenido del archivo
-        content_encoded = base64.b64encode(file_content).decode('utf-8')
-        
-        # Verificar si el archivo ya existe
-        try:
-            existing_file = repo.get_contents(file_path)
-            # Si existe, actualizarlo
-            result = repo.update_file(
-                file_path,
-                f"Actualizar {file_name}",
-                content_encoded,
-                existing_file.sha
-            )
-        except:
-            # Si no existe, crearlo
-            result = repo.create_file(
-                file_path,
-                f"Agregar {file_name}",
-                content_encoded
-            )
-        
-        return result['content'].html_url
-        
-    except Exception as e:
-        st.error(f"Error al subir archivo a GitHub: {str(e)}")
-        return None
 
 # Función para mostrar panel de usuario
 def show_user_panel():
@@ -621,82 +576,47 @@ def show_user_panel():
                                     hide_index=True
                                 )
                                 
-                                # Configuración de GitHub y botones de acción
-                                st.subheader("🔧 Acciones para este criterio")
+                                # Botones de acción por archivo
+                                st.subheader("🔧 Acciones")
                                 
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.write("**Configuración de GitHub:**")
-                                    github_token = st.text_input(f"Token de GitHub", type="password", key=f"github_token_{criterio}")
-                                    repo_name = st.text_input(f"Repositorio (usuario/repo)", placeholder="miusuario/mi-repositorio", key=f"repo_name_{criterio}")
-                                
-                                with col2:
-                                    st.write("**Acciones por archivo:**")
+                                for idx, row in criterio_evidencias.iterrows():
+                                    file_name = row.get('nombre_archivo', 'archivo')
+                                    original_idx = user_evidencias.index[user_evidencias.index == idx][0]
                                     
-                                    for idx, row in criterio_evidencias.iterrows():
-                                        file_name = row.get('nombre_archivo', 'archivo')
-                                        original_idx = user_evidencias.index[user_evidencias.index == idx][0]
+                                    col_file, col_delete = st.columns([3, 1])
+                                    
+                                    with col_file:
+                                        st.write(f"📄 {file_name}")
+                                    
+                                    with col_delete:
+                                        if st.button(f"🗑️ Eliminar", key=f"delete_{original_idx}"):
+                                            st.session_state[f'confirm_delete_{original_idx}'] = True
+                                            st.rerun()
+                                    
+                                    # Confirmación de eliminación
+                                    if st.session_state.get(f'confirm_delete_{original_idx}', False):
+                                        st.warning(f"¿Estás seguro de eliminar {file_name}?")
+                                        col_yes, col_no = st.columns(2)
                                         
-                                        col_github, col_delete = st.columns(2)
-                                        
-                                        with col_github:
-                                            if st.button(f"📤 GitHub", key=f"github_{original_idx}"):
-                                                if github_token and repo_name:
-                                                    with st.spinner(f"Subiendo {file_name} a GitHub..."):
-                                                        try:
-                                                            # Descargar archivo desde GCS
-                                                            import requests
-                                                            response = requests.get(row['url_cloudinary'])
-                                                            if response.status_code == 200:
-                                                                folder_path = f"{user_data['programa']}/{row.get('dimension', 'General')}/{criterio}"
-                                                                github_url = upload_to_github(
-                                                                    response.content,
-                                                                    file_name,
-                                                                    folder_path,
-                                                                    github_token,
-                                                                    repo_name
-                                                                )
-                                                                if github_url:
-                                                                    st.success(f"✅ {file_name} subido a GitHub: {github_url}")
-                                                                else:
-                                                                    st.error("Error al subir a GitHub")
-                                                            else:
-                                                                st.error("Error al descargar el archivo")
-                                                        except Exception as e:
-                                                            st.error(f"Error: {str(e)}")
-                                                else:
-                                                    st.error("Configura el token y repositorio de GitHub primero")
-                                        
-                                        with col_delete:
-                                            if st.button(f"🗑️ Eliminar", key=f"delete_{original_idx}"):
-                                                st.session_state[f'confirm_delete_{original_idx}'] = True
-                                                st.rerun()
-                                        
-                                        # Confirmación de eliminación
-                                        if st.session_state.get(f'confirm_delete_{original_idx}', False):
-                                            st.warning(f"¿Estás seguro de eliminar {file_name}?")
-                                            col_yes, col_no = st.columns(2)
-                                            
-                                            with col_yes:
-                                                if st.button("✅ Sí, eliminar", key=f"confirm_yes_{original_idx}"):
-                                                    with st.spinner(f"Eliminando {file_name}..."):
-                                                        # Eliminar de GCS
-                                                        if delete_from_gcs(row['url_cloudinary'], gcs_client):
-                                                            # Eliminar de Google Sheets
-                                                            if delete_evidencia(client, original_idx):
-                                                                st.success(f"✅ {file_name} eliminado exitosamente")
-                                                                del st.session_state[f'confirm_delete_{original_idx}']
-                                                                st.rerun()
-                                                            else:
-                                                                st.error("Error al eliminar de la base de datos")
+                                        with col_yes:
+                                            if st.button("✅ Sí, eliminar", key=f"confirm_yes_{original_idx}"):
+                                                with st.spinner(f"Eliminando {file_name}..."):
+                                                    # Eliminar de GCS
+                                                    if delete_from_gcs(row['url_cloudinary'], gcs_client):
+                                                        # Eliminar de Google Sheets
+                                                        if delete_evidencia(client, original_idx):
+                                                            st.success(f"✅ {file_name} eliminado exitosamente")
+                                                            del st.session_state[f'confirm_delete_{original_idx}']
+                                                            st.rerun()
                                                         else:
-                                                            st.error("Error al eliminar del almacenamiento")
-                                            
-                                            with col_no:
-                                                if st.button("❌ Cancelar", key=f"confirm_no_{original_idx}"):
-                                                    del st.session_state[f'confirm_delete_{original_idx}']
-                                                    st.rerun()
+                                                            st.error("Error al eliminar de la base de datos")
+                                                    else:
+                                                        st.error("Error al eliminar del almacenamiento")
+                                        
+                                        with col_no:
+                                            if st.button("❌ Cancelar", key=f"confirm_no_{original_idx}"):
+                                                del st.session_state[f'confirm_delete_{original_idx}']
+                                                st.rerun()
                     else:
                         st.info("No hay evidencias para la dimensión seleccionada.")
                         
