@@ -377,19 +377,32 @@ def delete_from_gcs(file_url, gcs_client, bucket_name="mi-bucket-proyecto"):
         return False
 
 # Función para eliminar evidencia de Google Sheets
-def delete_evidencia(client, row_index):
-    """Elimina una evidencia específica de Google Sheets"""
+def delete_evidencia(client, programa, subido_por, url_cloudinary):
+    """Elimina una evidencia específica de Google Sheets buscando por sus datos"""
     try:
         sheet = client.open("sistema_evidencias")
         evidencias_worksheet = sheet.worksheet("evidencias")
         
-        # Eliminar la fila (row_index + 2 porque las filas empiezan en 1 y hay encabezado)
-        evidencias_worksheet.delete_rows(row_index + 2)
+        # Obtener todos los registros
+        all_records = evidencias_worksheet.get_all_records()
         
-        # Limpiar cache
-        get_evidencias_data.clear()
+        # Buscar la fila que coincida
+        for i, record in enumerate(all_records):
+            if (record.get('programa') == programa and 
+                record.get('subido_por') == subido_por and 
+                record.get('url_cloudinary') == url_cloudinary):
+                
+                # Eliminar la fila (i + 2 porque las filas empiezan en 1 y hay encabezado)
+                evidencias_worksheet.delete_rows(i + 2)
+                
+                # Limpiar cache
+                get_evidencias_data.clear()
+                
+                return True
         
-        return True
+        st.error("No se encontró la evidencia para eliminar")
+        return False
+        
     except Exception as e:
         st.error(f"Error al eliminar evidencia de la base de datos: {str(e)}")
         return False
@@ -581,7 +594,12 @@ def show_user_panel():
                                 
                                 for idx, row in criterio_evidencias.iterrows():
                                     file_name = row.get('nombre_archivo', 'archivo')
-                                    original_idx = user_evidencias.index[user_evidencias.index == idx][0]
+                                    file_url = row.get('url_cloudinary', '')
+                                    programa = row.get('programa', user_data['programa'])
+                                    subido_por = row.get('subido_por', user_data['correo'])
+                                    
+                                    # Crear key único basado en el contenido del archivo
+                                    unique_key = f"{programa}_{subido_por}_{file_name}_{idx}".replace(" ", "_").replace("/", "_")
                                     
                                     col_file, col_delete = st.columns([3, 1])
                                     
@@ -589,33 +607,53 @@ def show_user_panel():
                                         st.write(f"📄 {file_name}")
                                     
                                     with col_delete:
-                                        if st.button(f"🗑️ Eliminar", key=f"delete_{original_idx}"):
-                                            st.session_state[f'confirm_delete_{original_idx}'] = True
+                                        if st.button(f"🗑️ Eliminar", key=f"delete_{unique_key}"):
+                                            st.session_state[f'confirm_delete_{unique_key}'] = {
+                                                'file_name': file_name,
+                                                'url': file_url,
+                                                'programa': programa,
+                                                'subido_por': subido_por
+                                            }
                                             st.rerun()
                                     
                                     # Confirmación de eliminación
-                                    if st.session_state.get(f'confirm_delete_{original_idx}', False):
-                                        st.warning(f"¿Estás seguro de eliminar {file_name}?")
+                                    if st.session_state.get(f'confirm_delete_{unique_key}'):
+                                        delete_info = st.session_state[f'confirm_delete_{unique_key}']
+                                        st.warning(f"¿Estás seguro de eliminar {delete_info['file_name']}?")
                                         col_yes, col_no = st.columns(2)
                                         
                                         with col_yes:
-                                            if st.button("✅ Sí, eliminar", key=f"confirm_yes_{original_idx}"):
-                                                with st.spinner(f"Eliminando {file_name}..."):
+                                            if st.button("✅ Sí, eliminar", key=f"confirm_yes_{unique_key}"):
+                                                with st.spinner(f"Eliminando {delete_info['file_name']}..."):
+                                                    success_gcs = True
+                                                    success_sheets = True
+                                                    
+                                                    # Eliminar de Google Sheets primero
+                                                    success_sheets = delete_evidencia(
+                                                        client, 
+                                                        delete_info['programa'], 
+                                                        delete_info['subido_por'], 
+                                                        delete_info['url']
+                                                    )
+                                                    
                                                     # Eliminar de GCS
-                                                    if delete_from_gcs(row['url_cloudinary'], gcs_client):
-                                                        # Eliminar de Google Sheets
-                                                        if delete_evidencia(client, original_idx):
-                                                            st.success(f"✅ {file_name} eliminado exitosamente")
-                                                            del st.session_state[f'confirm_delete_{original_idx}']
-                                                            st.rerun()
-                                                        else:
-                                                            st.error("Error al eliminar de la base de datos")
+                                                    if delete_info['url']:
+                                                        success_gcs = delete_from_gcs(delete_info['url'], gcs_client)
+                                                    
+                                                    if success_sheets and success_gcs:
+                                                        st.success(f"✅ {delete_info['file_name']} eliminado exitosamente")
+                                                        del st.session_state[f'confirm_delete_{unique_key}']
+                                                        st.rerun()
+                                                    elif success_sheets and not success_gcs:
+                                                        st.warning("⚠️ Archivo eliminado de la base de datos, pero no del almacenamiento")
+                                                        del st.session_state[f'confirm_delete_{unique_key}']
+                                                        st.rerun()
                                                     else:
-                                                        st.error("Error al eliminar del almacenamiento")
+                                                        st.error("❌ Error al eliminar el archivo")
                                         
                                         with col_no:
-                                            if st.button("❌ Cancelar", key=f"confirm_no_{original_idx}"):
-                                                del st.session_state[f'confirm_delete_{original_idx}']
+                                            if st.button("❌ Cancelar", key=f"confirm_no_{unique_key}"):
+                                                del st.session_state[f'confirm_delete_{unique_key}']
                                                 st.rerun()
                     else:
                         st.info("No hay evidencias para la dimensión seleccionada.")
