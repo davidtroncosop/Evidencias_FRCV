@@ -2,7 +2,7 @@
 name = "sistema-evidencias"
 version = "1.0.0"
 description = "Sistema de gestión de evidencias para acreditación."
-requires-python = ">=3.9, <3.12"  # Especificamos un rango de Python compatible y estable
+requires-python = ">=3.9"  # Especificamos un rango de Python compatible y estable
 
 dependencies = [
     "streamlit",
