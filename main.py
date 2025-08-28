@@ -167,9 +167,15 @@ def add_evidencia(client, programa, subido_por, url_cloudinary, criterio, dimens
         return False
 
 # Función para subir archivo a Google Cloud Storage
-def upload_to_gcs(file, folder_name, gcs_client, dimension=None, criterio=None, bucket_name="mi-bucket-proyecto"):
+def upload_to_gcs(file, folder_name, gcs_client, dimension=None, criterio=None, bucket_name=None):
     """Sube un archivo a Google Cloud Storage y retorna la URL pública"""
     try:
+        # Si no se especifica bucket, usar el proyecto ID como bucket
+        if not bucket_name:
+            bucket_name = f"{gcs_client.project}-evidencias"
+        
+        st.info(f"Intentando subir archivo al bucket: {bucket_name}")
+        
         # Crear la ruta del archivo con estructura de carpetas
         # Limpiar nombres para que sean compatibles con GCS
         clean_dimension = dimension.replace("/", "-").replace("\\", "-") if dimension else ""
@@ -182,8 +188,26 @@ def upload_to_gcs(file, folder_name, gcs_client, dimension=None, criterio=None, 
         else:
             file_path = f"{clean_folder}/{file.name}"
 
-        # Obtener el bucket
-        bucket = gcs_client.bucket(bucket_name)
+        # Verificar si el bucket existe, si no, intentar crearlo
+        try:
+            bucket = gcs_client.bucket(bucket_name)
+            # Verificar si existe
+            if not bucket.exists():
+                st.info(f"Creando bucket: {bucket_name}")
+                bucket = gcs_client.create_bucket(bucket_name)
+                st.success(f"Bucket creado exitosamente: {bucket_name}")
+        except Exception as bucket_error:
+            st.error(f"Error con el bucket {bucket_name}: {str(bucket_error)}")
+            # Intentar con un bucket alternativo más simple
+            bucket_name = f"evidencias-{gcs_client.project}"
+            try:
+                bucket = gcs_client.bucket(bucket_name)
+                if not bucket.exists():
+                    bucket = gcs_client.create_bucket(bucket_name)
+                    st.success(f"Bucket alternativo creado: {bucket_name}")
+            except Exception as e2:
+                st.error(f"No se pudo crear ningún bucket: {str(e2)}")
+                return None
 
         # Crear el blob (archivo en GCS)
         blob = bucket.blob(file_path)
@@ -191,6 +215,7 @@ def upload_to_gcs(file, folder_name, gcs_client, dimension=None, criterio=None, 
         # Subir el archivo
         file.seek(0)  # Resetear el puntero del archivo
         blob.upload_from_file(file, content_type=file.type)
+        st.success(f"Archivo subido exitosamente: {file_path}")
 
         # Intentar hacer el archivo público, si no se puede, usar URL autenticada
         try:
@@ -208,6 +233,8 @@ def upload_to_gcs(file, folder_name, gcs_client, dimension=None, criterio=None, 
 
     except Exception as e:
         st.error(f"Error al subir archivo a Google Cloud Storage: {str(e)}")
+        st.error(f"Proyecto: {gcs_client.project if gcs_client else 'Cliente no disponible'}")
+        st.error(f"Tipo de error: {type(e).__name__}")
         return None
 
 # Función de autenticación
@@ -344,7 +371,7 @@ def change_password_page():
                 st.error(f"Error al actualizar contraseña: {str(e)}")
 
 # Función mejorada para eliminar archivo de Google Cloud Storage
-def delete_from_gcs(file_url, gcs_client, bucket_name="mi-bucket-proyecto"):
+def delete_from_gcs(file_url, gcs_client, bucket_name=None):
     """Elimina un archivo de Google Cloud Storage usando su URL"""
     try:
         if not file_url:
