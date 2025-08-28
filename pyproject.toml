@@ -1,20 +1,13 @@
 [project]
-name = "repl-nix-workspace"
-version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.11"
+name = "sistema-evidencias"
+version = "1.0.0"
+description = "Sistema de gestión de evidencias para acreditación."
+requires-python = ">=3.9, <3.12"  # Especificamos un rango de Python compatible y estable
+
 dependencies = [
-    "cloudinary>=1.44.1",
-    "google-auth-oauthlib>=1.2.2",
-    "google-auth>=2.40.3",
-    "gspread>=6.2.1",
-    "pandas>=2.3.2",
-    "streamlit>=1.48.1",
-    "google-auth-httplib2>=0.2.0",
-    "google-api-python-client>=2.179.0",
-    "google-cloud-storage>=3.3.0",
-    "requests>=2.32.5",
-    "pygithub>=2.7.0",
-    "gitpython>=3.1.45",
-    "sift-stack-py>=0.8.4",
+    "streamlit",
+    "gspread",
+    "google-oauth2-client",
+    "google-cloud-storage",
+    "pandas",
 ]
