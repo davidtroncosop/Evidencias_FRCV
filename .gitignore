@@ -49,3 +49,6 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# UV lock file
+uv.lock
