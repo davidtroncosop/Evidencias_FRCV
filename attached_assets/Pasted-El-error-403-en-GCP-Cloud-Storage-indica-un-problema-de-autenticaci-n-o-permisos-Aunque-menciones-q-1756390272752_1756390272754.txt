@@ -1,0 +1,83 @@
+El error 403 en GCP Cloud Storage indica un problema de autenticación o permisos. Aunque menciones que las variables de entorno están configuradas igual y que GCP es "casi público", hay varias diferencias entre el entorno local y producción que pueden causar este problema.
+Posibles causas y soluciones:
+1. Autenticación de Service Account
+En local probablemente uses un archivo JSON de service account, pero en producción necesitas configurarlo diferente:
+python# En producción, asegúrate de tener la variable de entorno:
+# GOOGLE_APPLICATION_CREDENTIALS = ruta_al_archivo_json
+# o usar las credenciales del entorno
+
+from google.cloud import storage
+import os
+
+# Opción 1: Usar archivo JSON
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "path/to/service-account.json"
+
+# Opción 2: Crear cliente con credenciales explícitas
+from google.oauth2 import service_account
+credentials = service_account.Credentials.from_service_account_file(
+    "path/to/service-account.json"
+)
+client = storage.Client(credentials=credentials)
+2. Permisos del bucket
+Verifica que el service account tenga los permisos correctos:
+
+Storage Object Creator para subir archivos
+Storage Object Viewer para leer archivos
+O Storage Admin para operaciones completas
+
+3. Configuración de CORS (si usas frontend)
+Si tu app hace requests desde el navegador:
+bash# cors.json
+[
+  {
+    "origin": ["https://tu-dominio-produccion.com"],
+    "method": ["GET", "POST", "PUT"],
+    "responseHeader": ["Content-Type"],
+    "maxAgeSeconds": 3600
+  }
+]
+
+# Aplicar CORS
+gsutil cors set cors.json gs://tu-bucket
+4. Diferencias en Streamlit Cloud
+Si usas Streamlit Cloud, las credenciales se manejan via secrets:
+toml# .streamlit/secrets.toml
+[gcp_service_account]
+type = "service_account"
+project_id = "tu-proyecto"
+private_key_id = "..."
+private_key = "..."
+client_email = "..."
+# ... resto de campos del JSON
+python# En tu código
+import streamlit as st
+from google.oauth2 import service_account
+from google.cloud import storage
+
+# Crear credenciales desde secrets
+credentials = service_account.Credentials.from_service_account_info(
+    st.secrets["gcp_service_account"]
+)
+client = storage.Client(credentials=credentials)
+5. Verificación de debugging
+Agrega logs para identificar el problema:
+pythonimport logging
+logging.basicConfig(level=logging.DEBUG)
+
+try:
+    # Tu código de subida
+    bucket = client.bucket('tu-bucket')
+    blob = bucket.blob('archivo.txt')
+    blob.upload_from_string('contenido')
+except Exception as e:
+    st.error(f"Error: {e}")
+    st.error(f"Proyecto: {client.project}")
+    st.error(f"Credenciales: {type(client._credentials)}")
+6. Verificar configuración del proyecto
+Asegúrate que:
+
+El proyecto GCP sea el correcto en producción
+El service account pertenezca al proyecto correcto
+Las APIs estén habilitadas (Cloud Storage API)
+
+¿Podrías compartir cómo tienes configurada la autenticación actualmente y en qué plataforma tienes desplegada la app en producción? Eso me ayudaría a dar una solución más específica.

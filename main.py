@@ -80,23 +80,26 @@ def init_google_sheets():
 def init_google_cloud_storage():
     """Inicializa la conexión con Google Cloud Storage usando las credenciales de los secrets"""
     try:
-        # Obtener credenciales desde los secrets de Replit
-        google_credentials = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        # Usar las mismas credenciales que Google Sheets
+        google_credentials = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
         if not google_credentials:
-            st.error("No se encontraron las credenciales de Google Cloud Storage en los secrets")
+            st.error("No se encontraron las credenciales de Google en los secrets")
             return None
 
-        # Crear archivo temporal con las credenciales
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
-            f.write(google_credentials)
-            temp_creds_path = f.name
+        # Parsear las credenciales JSON
+        creds_dict = json.loads(google_credentials)
 
-        # Configurar la variable de entorno
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_creds_path
+        # Configurar los scopes necesarios para Storage
+        scopes = [
+            "https://www.googleapis.com/auth/cloud-platform",
+            "https://www.googleapis.com/auth/devstorage.full_control"
+        ]
 
-        # Inicializar el cliente de Google Cloud Storage
-        client = storage.Client()
+        # Crear las credenciales con los scopes correctos
+        credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+
+        # Inicializar el cliente de Google Cloud Storage con credenciales explícitas
+        client = storage.Client(credentials=credentials, project=creds_dict.get('project_id'))
 
         return client
     except Exception as e:
