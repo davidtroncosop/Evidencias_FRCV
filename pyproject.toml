@@ -2,11 +2,11 @@
 name = "sistema-evidencias"
 version = "1.0.0"
 description = "Sistema de gestión de evidencias para acreditación"
-authors = ["Tu Nombre <tu@email.com>"]
+authors = ["David Troncoso <david.troncoso@uss.cl>"]
 package-mode = false
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = ">=3.9,!=3.9.7,<3.12"
 streamlit = "^1.49.0"
 gspread = "^6.2.1"
 google-auth = "^2.40.3"
