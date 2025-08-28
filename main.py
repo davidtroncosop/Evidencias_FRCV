@@ -315,7 +315,7 @@ def change_password_page():
 
                 # Encontrar la fila del usuario
                 for i, record in enumerate(all_records):
-                    if record['correo'].lower() == user_email.lower():
+                    if str(record['correo']).lower() == user_email.lower():
                         row_num = i + 2  # +2 porque las filas empiezan en 1 y hay encabezado
 
                         # Verificar si existe la columna contraseña
