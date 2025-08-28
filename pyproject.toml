@@ -12,3 +12,5 @@ dependencies = [
     "google-cloud-storage",
     "pandas",
 ]
+[tool.poetry]
+package-mode = false
