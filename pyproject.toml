@@ -2,12 +2,13 @@
 name = "sistema-evidencias"
 version = "1.0.0"
 description = "Sistema de gestión de evidencias para acreditación."
-requires-python = ">=3.9"  # Especificamos un rango de Python compatible y estable
+requires-python = ">=3.9"
 
 dependencies = [
     "streamlit",
     "gspread",
-    "google-oauth2-client",
+    "google-auth",            # Nombre correcto para la autenticación base
+    "google-auth-oauthlib",   # Requerido por gspread
     "google-cloud-storage",
     "pandas",
 ]
